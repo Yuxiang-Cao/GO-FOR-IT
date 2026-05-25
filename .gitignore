@@ -1,0 +1,29 @@
+# Python environment and cache
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+.mypy_cache/
+
+# Node environment and build targets
+frontend/node_modules/
+frontend/dist/
+.eslintcache
+
+# Local databases and runtime state
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/cv_details.json
+output/
+*.log
+
+# IDEs and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

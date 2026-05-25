@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  job-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist database, CV templates and tailored outputs in local folder
+      - ./data:/app/data
+      # Mount configuration file for easy changes without rebuilding image
+      - ./config.yaml:/app/config.yaml
+    environment:
+      # Inject Gemini API Key from your local host machine env variables
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    restart: unless-stopped
