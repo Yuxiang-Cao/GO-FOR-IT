@@ -62,7 +62,11 @@ You can host this project 24/7 in the cloud for free using Hugging Face Spaces:
 
 ## 🛠️ Configuration
 
-You can customize your job search keywords, target locations, languages, and working culture context in the **`config.yaml`** file:
+You can customize your global search keywords, target locations, languages, and working culture context in the **`config.yaml`** file.
+
+*Alternatively, you can edit and save all of these preferences directly from the web application by navigating to the **System Settings** tab and updating the **Global System Preferences** section. This dynamically updates `config.yaml` and reloads configurations for active agents.*
+
+Example `config.yaml` layout:
 
 ```yaml
 search:
