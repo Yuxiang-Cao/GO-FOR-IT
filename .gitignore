@@ -1,29 +1,43 @@
-# Python environment and cache
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
 .venv/
 venv/
-ENV/
 env/
-.pytest_cache/
-.mypy_cache/
 
-# Node environment and build targets
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Data & runtime artifacts
+data/database.db
+data/database.db-shm
+data/database.db-wal
+data/database.db.bak
+data/output/
+data/resume_base.json
+data/cv.tex
+data/fake_cv.tex
+
+# Node / Frontend
 frontend/node_modules/
 frontend/dist/
-.eslintcache
 
-# Local databases and runtime state
-data/*.db
-data/*.db-wal
-data/*.db-shm
-data/cv_details.json
-output/
+# Scratch / temp
+scratch/
+chrome_startup.log
 *.log
-
-# IDEs and OS files
-.idea/
-.vscode/
-.DS_Store
-Thumbs.db

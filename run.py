@@ -11,7 +11,7 @@ def open_browser():
 
 def main():
     print("==================================================")
-    print("Starting GO FOR IT Local Server")
+    print("🚀 Starting Job Monitor & CV Tailor Local Server")
     print("==================================================")
     
     project_dir = os.path.dirname(os.path.abspath(__file__))

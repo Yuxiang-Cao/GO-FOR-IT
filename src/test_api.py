@@ -20,22 +20,29 @@ class TestAPIEndpoints(unittest.TestCase):
         api.analyzer.db.close()
         api.tracker.db.close()
         
-        # 2. Back up existing files
-        cls.backups = {}
+        # 2. Store original paths
+        cls.orig_db_path = api.db_path
+        cls.orig_resume_json_path = api.resume_json_path
+        cls.orig_base_cv_path = api.base_cv_path
+        
+        # 3. Override with test paths
+        api.db_path = os.path.join(api.project_dir, "data", "test_api_database.db")
+        api.resume_json_path = os.path.join(api.project_dir, "data", "test_resume_base.json")
+        api.base_cv_path = os.path.join(api.project_dir, "data", "test_cv.tex")
+        
+        # 4. Clean up any existing test files (from previous runs)
         for path in [api.db_path, api.resume_json_path, api.base_cv_path]:
             if os.path.exists(path):
-                cls.backups[path] = path + ".bak"
-                # If backup already exists, delete it first
-                if os.path.exists(path + ".bak"):
-                    os.remove(path + ".bak")
-                shutil.copy2(path, path + ".bak")
-                os.remove(path)
+                try:
+                    os.remove(path)
+                except Exception:
+                    pass
                 
-        # 3. Re-initialize connection references with fresh test databases
+        # 5. Re-initialize connection references with fresh test databases
         api.db = JobDatabase(api.db_path)
         api.monitor = JobMonitor(config_path=api.config_path, db_path=api.db_path)
         api.analyzer = JDAnalyzer(config_path=api.config_path, db_path=api.db_path)
-        api.tracker = AppTracker(db_path=api.db_path, dashboard_path=os.path.join(api.project_dir, "applications.md"))
+        api.tracker = AppTracker(db_path=api.db_path, dashboard_path=os.path.join(api.project_dir, "test_applications.md"))
         
         cls.client = TestClient(api.app)
  
@@ -50,18 +57,29 @@ class TestAPIEndpoints(unittest.TestCase):
         # 2. Delete test database and files
         for path in [api.db_path, api.resume_json_path, api.base_cv_path]:
             if os.path.exists(path):
-                os.remove(path)
+                try:
+                    os.remove(path)
+                except Exception:
+                    pass
+                    
+        # Delete test applications.md
+        test_app_md = os.path.join(api.project_dir, "test_applications.md")
+        if os.path.exists(test_app_md):
+            try:
+                os.remove(test_app_md)
+            except Exception:
+                pass
                 
-        # 3. Restore backups
-        for path, backup_path in cls.backups.items():
-            if os.path.exists(backup_path):
-                shutil.move(backup_path, path)
-                
+        # 3. Restore original paths
+        api.db_path = cls.orig_db_path
+        api.resume_json_path = cls.orig_resume_json_path
+        api.base_cv_path = cls.orig_base_cv_path
+        
         # 4. Re-establish original connections
         api.db = JobDatabase(api.db_path)
         api.monitor = JobMonitor(db_path=api.db_path)
         api.analyzer = JDAnalyzer(db_path=api.db_path)
-        api.tracker = AppTracker(db_path=api.db_path)
+        api.tracker = AppTracker(db_path=api.db_path, dashboard_path=os.path.join(api.project_dir, "applications.md"))
 
     def test_01_status_onboarding_check(self):
         """Verify that the status endpoint returns not onboarded initially."""
@@ -204,6 +222,49 @@ class TestAPIEndpoints(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         dev_plan = response.json()
         self.assertIn("plan", dev_plan)
+
+    def test_04_job_monitor_active_monitors(self):
+        """Test creating an active monitor, running the monitor endpoint, and pausing/deleting it."""
+        # 1. Create a monitor
+        monitor_payload = {
+            "name": "Test Api Monitor",
+            "keywords": ["Python"],
+            "locations": ["Sweden"],
+            "remote": True,
+            "active": True
+        }
+        response = self.client.post("/api/monitors", json=monitor_payload)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("monitor_id", data)
+        monitor_id = data["monitor_id"]
+        
+        # 2. Get monitors list and check if active
+        response = self.client.get("/api/monitors")
+        self.assertEqual(response.status_code, 200)
+        monitors = response.json()
+        self.assertTrue(any(m["id"] == monitor_id and m["active"] for m in monitors))
+        
+        # 3. Trigger monitor run
+        response = self.client.post("/api/jobs/monitor")
+        self.assertEqual(response.status_code, 200)
+        monitor_data = response.json()
+        self.assertIn("new_jobs", monitor_data)
+        
+        # 4. Deactivate the monitor
+        monitor_payload["active"] = False
+        response = self.client.put(f"/api/monitors/{monitor_id}", json=monitor_payload)
+        self.assertEqual(response.status_code, 200)
+        
+        # Verify inactive
+        response = self.client.get("/api/monitors")
+        self.assertEqual(response.status_code, 200)
+        monitors = response.json()
+        self.assertTrue(any(m["id"] == monitor_id and not m["active"] for m in monitors))
+        
+        # 5. Clean up: delete monitor
+        response = self.client.delete(f"/api/monitors/{monitor_id}")
+        self.assertEqual(response.status_code, 200)
 
 if __name__ == "__main__":
     unittest.main()

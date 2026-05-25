@@ -61,6 +61,19 @@ class JobDatabase:
         )
         """)
         
+        # 4. Monitors Table
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS monitors (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            keywords TEXT NOT NULL,  -- JSON string list
+            locations TEXT NOT NULL, -- JSON string list
+            remote INTEGER NOT NULL, -- 0 or 1
+            active INTEGER NOT NULL, -- 0 or 1
+            created_at TEXT NOT NULL
+        )
+        """)
+        
         self.conn.commit()
 
     def get_job_hash(self, company, title, jd_text):
@@ -150,6 +163,42 @@ class JobDatabase:
         cursor.execute("UPDATE applications SET status = ? WHERE job_id = ?", (status, job_id))
         # Sync jobs status too
         cursor.execute("UPDATE jobs SET status = ? WHERE id = ?", (status, job_id))
+        self.conn.commit()
+
+    def add_monitor(self, name, keywords, locations, remote, active=True):
+        import json
+        monitor_id = hashlib.sha256(f"{name}|{datetime.now().isoformat()}".encode('utf-8')).hexdigest()
+        created_at = datetime.now().isoformat()
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "INSERT INTO monitors (id, name, keywords, locations, remote, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (monitor_id, name, json.dumps(keywords), json.dumps(locations), 1 if remote else 0, 1 if active else 0, created_at)
+        )
+        self.conn.commit()
+        return monitor_id
+
+    def get_monitors(self):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM monitors ORDER BY created_at DESC")
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_active_monitors(self):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM monitors WHERE active = 1 ORDER BY created_at DESC")
+        return [dict(row) for row in cursor.fetchall()]
+
+    def update_monitor(self, monitor_id, name, keywords, locations, remote, active):
+        import json
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE monitors SET name = ?, keywords = ?, locations = ?, remote = ?, active = ? WHERE id = ?",
+            (name, json.dumps(keywords), json.dumps(locations), 1 if remote else 0, 1 if active else 0, monitor_id)
+        )
+        self.conn.commit()
+
+    def delete_monitor(self, monitor_id):
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM monitors WHERE id = ?", (monitor_id,))
         self.conn.commit()
 
     def close(self):

@@ -98,6 +98,37 @@ class JDAnalyzer:
                     {"skill": "Apache Kafka", "difficulty": "Intermediate", "action": "Build a small local producer-consumer system in Python using kafka-python."}
                 ]
             })
+        elif "extract_monitor_preferences" in prompt:
+            return json.dumps({
+                "name": "Python Backend Stockholm",
+                "keywords": ["Python", "FastAPI", "SQL"],
+                "locations": ["Stockholm", "Sweden"],
+                "remote": True
+            })
+        elif "structure_raw_cv_text" in prompt:
+            return json.dumps({
+                "preamble": "\\documentclass{article}\n\\begin{document}",
+                "sections": [
+                    {
+                        "title": "Summary",
+                        "raw_before_items": "Experienced Software Engineer.",
+                        "list_items": [],
+                        "raw_after_items": ""
+                    },
+                    {
+                        "title": "Experience",
+                        "raw_before_items": "",
+                        "list_items": ["Developed software in Python at TechCorp."],
+                        "raw_after_items": ""
+                    },
+                    {
+                        "title": "Skills",
+                        "raw_before_items": "",
+                        "list_items": ["Python", "Git"],
+                        "raw_after_items": ""
+                    }
+                ]
+            })
         return "{}"
 
     def analyze_jd(self, jd_text: str, cv_json: dict) -> dict:
@@ -220,3 +251,50 @@ class JDAnalyzer:
             return data
         except Exception:
             return json.loads(self._mock_ai_query("development_plan")).get("plan", [])
+
+    def extract_monitor_preferences(self, user_text: str) -> dict:
+        """Extracts job search preferences from free text query."""
+        prompt = f"""
+        # extract_monitor_preferences
+        Extract job search preferences from the user's input text.
+        
+        Input Text: "{user_text}"
+        
+        Output a JSON object with keys:
+        - "name": a short 2-4 word descriptive name for this monitor (e.g., "Python Stockholm Remote")
+        - "keywords": a list of key technical terms, frameworks, or job roles mentioned (e.g., ["Python", "FastAPI"])
+        - "locations": a list of cities or countries mentioned (e.g., ["Stockholm", "Sweden"])
+        - "remote": a boolean indicating if remote is mentioned/requested
+        """
+        response_text = self.run_ai_query(prompt, use_pro=False)
+        try:
+            return json.loads(response_text)
+        except Exception:
+            return json.loads(self._mock_ai_query("extract_monitor_preferences"))
+
+    def structure_raw_cv_text(self, raw_text: str) -> dict:
+        """Structures raw extracted CV text into standard resume JSON using Gemini."""
+        prompt = f"""
+        # structure_raw_cv_text
+        You are an expert resume parsing AI.
+        Analyze the following raw text extracted from a resume.
+        Identify all personal summaries, work experiences, skills, and education sections.
+        
+        Structure this information into a JSON object containing:
+        1. "preamble": A string containing LaTeX preamble declarations, or simply leave empty/default if not relevant.
+        2. "sections": A list of section objects. Each section object MUST have:
+           - "title": Title of the section (e.g. "Summary", "Experience", "Skills", "Education").
+           - "raw_before_items": Introductory text in the section before any bullet points.
+           - "list_items": A list of bullet points / items in that section.
+           - "raw_after_items": Closing text / content in the section after the bullet list.
+           
+        Keep the descriptions clean and preserve professional detail.
+        
+        Raw CV Text:
+        {raw_text}
+        """
+        response_text = self.run_ai_query(prompt, use_pro=True)
+        try:
+            return json.loads(response_text)
+        except Exception:
+            return json.loads(self._mock_ai_query("structure_raw_cv_text"))

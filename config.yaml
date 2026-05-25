@@ -1,0 +1,31 @@
+# Job Monitor & CV Tailor Configuration
+
+search:
+  keywords:
+    - "Python Engineer"
+    - "AI Engineer"
+    - "Software Developer"
+  countries:
+    - "Sweden"
+  cities:
+    - "Gothenburg"
+    - "Stockholm"
+  remote: true  # Allow remote jobs
+  languages:
+    - "English"
+    - "Swedish"
+  citizenship_restrictions:
+    - "EU Citizen"
+    - "Visa Sponsorship"
+
+gemini:
+  model_name: "gemini-1.5-flash"  # Default lightweight model for routine jobs
+  expert_model_name: "gemini-1.5-pro" # Expert model for complex CV tailoring
+  # Note: API key is loaded from the GEMINI_API_KEY environment variable.
+
+latex:
+  compiler: "auto"  # Can be 'tectonic', 'pdflatex', 'xelatex', or 'auto'
+  base_cv_path: "cv.tex"  # Default name for base CV uploaded by user
+
+culture:
+  target_culture: "Nordic"  # Options: 'Nordic', 'US', 'Central Europe'. Influences soft skills vs metrics weights.

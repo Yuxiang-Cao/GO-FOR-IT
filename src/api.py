@@ -1,6 +1,7 @@
 import os
 import json
 import shutil
+import yaml
 from typing import Optional, List
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,17 +16,9 @@ from src.agents.job_monitor import JobMonitor
 from src.agents.analyzer import JDAnalyzer
 from src.agents.cv_tailor import CVTailor
 from src.agents.tracker import AppTracker
+from src.version import __version__
 
-app = FastAPI(title="Job Monitor & CV Tailor API")
-
-# Configure CORS for Vite dev server (usually localhost:5173)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Allow all for local dev simplicity
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# FastAPI app setup moved below backend references instantiation to support lifespan database references
 
 # Define paths relative to this file's folder to prevent directory mismatch errors
 src_dir = os.path.dirname(os.path.abspath(__file__))
@@ -41,9 +34,6 @@ config_path = os.path.join(project_dir, "config.yaml")
 os.makedirs(os.path.dirname(db_path), exist_ok=True)
 os.makedirs(output_dir, exist_ok=True)
 
-# Mount outputs as static files so PDF can be displayed/downloaded
-app.mount("/output", StaticFiles(directory=output_dir), name="output")
-
 # Setup backend references
 db = JobDatabase(db_path)
 parser = LatexCVParser()
@@ -52,6 +42,65 @@ monitor = JobMonitor(config_path=config_path, db_path=db_path)
 analyzer = JDAnalyzer(config_path=config_path, db_path=db_path)
 tailor = CVTailor(config_path=config_path)
 tracker = AppTracker(db_path=db_path, dashboard_path=os.path.join(project_dir, "applications.md"))
+
+from contextlib import asynccontextmanager
+import asyncio
+
+# Background loop task handle
+background_monitor_task = None
+
+async def run_monitors_background_loop():
+    # Wait 10 seconds for DB initialization
+    await asyncio.sleep(10)
+    while True:
+        try:
+            active_monitors = db.get_active_monitors()
+            print(f"Background Job Monitor: Running {len(active_monitors)} active monitors...")
+            for mon in active_monitors:
+                try:
+                    keywords_list = json.loads(mon["keywords"])
+                    locations_list = json.loads(mon["locations"])
+                    search_cfg = {
+                        "keywords": keywords_list,
+                        "countries": locations_list,
+                        "cities": [],
+                        "remote": bool(mon["remote"]),
+                        "languages": ["English", "Swedish"],
+                        "citizenship_restrictions": []
+                    }
+                    print(f"Running background scraper for monitor '{mon['name']}'...")
+                    monitor.monitor_and_store(search_cfg=search_cfg)
+                except Exception as mon_err:
+                    print(f"Error executing background monitor '{mon['name']}': {mon_err}")
+        except Exception as e:
+            print(f"Error in background monitors loop: {e}")
+        await asyncio.sleep(300)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global background_monitor_task
+    background_monitor_task = asyncio.create_task(run_monitors_background_loop())
+    yield
+    if background_monitor_task:
+        background_monitor_task.cancel()
+        try:
+            await background_monitor_task
+        except asyncio.CancelledError:
+            pass
+
+app = FastAPI(title="Job Monitor & CV Tailor API", lifespan=lifespan)
+
+# Configure CORS for Vite dev server (usually localhost:5173)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all for local dev simplicity
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Mount outputs as static files so PDF can be displayed/downloaded
+app.mount("/output", StaticFiles(directory=output_dir), name="output")
 
 # Models
 class AnswersModel(BaseModel):
@@ -67,7 +116,52 @@ class JobStatusModel(BaseModel):
     status: str
     notes: Optional[str] = ""
 
+class ConfigModel(BaseModel):
+    search: Optional[dict] = None
+    culture: Optional[dict] = None
+
+class MonitorModel(BaseModel):
+    name: str
+    keywords: List[str]
+    locations: List[str]
+    remote: bool
+    active: Optional[bool] = True
+
+class ExtractModel(BaseModel):
+    text: str
+
 # API Endpoints
+@app.get("/api/config")
+def get_config():
+    """Returns the current search and system configuration."""
+    if not os.path.exists(config_path):
+        return {}
+    with open(config_path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+@app.post("/api/config")
+def update_config(payload: ConfigModel):
+    """Updates the config.yaml file and reloads configurations in active agents."""
+    existing = {}
+    if os.path.exists(config_path):
+        with open(config_path, "r", encoding="utf-8") as f:
+            existing = yaml.safe_load(f) or {}
+
+    if payload.search:
+        existing["search"] = payload.search
+    if payload.culture:
+        existing["culture"] = payload.culture
+
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(existing, f, default_flow_style=False)
+
+    # Reload configs in active agents
+    monitor.config = monitor._load_config()
+    analyzer.config = analyzer._load_config()
+    tailor.config = tailor._load_config()
+
+    return {"detail": "Configuration updated successfully.", "config": existing}
+
 @app.get("/api/status")
 def get_status():
     """Checks if the baseline resume has been uploaded and set up."""
@@ -83,28 +177,60 @@ def get_status():
         "onboarded": cv_exists,
         "cv_details": cv_details,
         "has_compiler": compiler.compiler is not None,
-        "compiler_detected": compiler.compiler
+        "compiler_detected": compiler.compiler,
+        "version": __version__
     }
 
 @app.post("/api/upload-cv")
 async def upload_cv(file: UploadFile = File(...)):
-    """Receives baseline LaTeX CV, parses it, and returns onboarding profile questions."""
-    if not file.filename.endswith(".tex"):
-        raise HTTPException(status_code=400, detail="Only LaTeX (.tex) files are supported.")
+    """Receives baseline LaTeX (.tex) or PDF (.pdf) CV, parses it, and returns onboarding profile questions."""
+    filename = file.filename.lower()
+    if not (filename.endswith(".tex") or filename.endswith(".pdf")):
+        raise HTTPException(status_code=400, detail="Only LaTeX (.tex) and PDF (.pdf) files are supported.")
         
-    # Save base file
-    with open(base_cv_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-        
-    # Parse LaTeX
-    try:
-        with open(base_cv_path, "r", encoding="utf-8") as f:
-            latex_content = f.read()
-        cv_json = parser.parse(latex_content)
-        parser.save_json(cv_json, resume_json_path)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to parse LaTeX file: {e}")
-        
+    if filename.endswith(".tex"):
+        # Save base file
+        with open(base_cv_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        # Parse LaTeX
+        try:
+            with open(base_cv_path, "r", encoding="utf-8") as f:
+                latex_content = f.read()
+            cv_json = parser.parse(latex_content)
+            parser.save_json(cv_json, resume_json_path)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to parse LaTeX file: {e}")
+    else:
+        # Save baseline PDF
+        pdf_path = os.path.join(project_dir, "data", "cv.pdf")
+        with open(pdf_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        # Parse PDF using pypdf
+        try:
+            from pypdf import PdfReader
+            reader = PdfReader(pdf_path)
+            raw_text = ""
+            for page in reader.pages:
+                text_page = page.extract_text()
+                if text_page:
+                    raw_text += text_page + "\n"
+            
+            if not raw_text.strip():
+                raise ValueError("PDF contains no readable text extract. Make sure it is not scanned/image-only.")
+                
+            # Structure text using Gemini
+            cv_json = analyzer.structure_raw_cv_text(raw_text)
+            parser.save_json(cv_json, resume_json_path)
+            
+            # Rebuild a baseline LaTeX CV for future tailoring outputs
+            rebuilt_latex = parser.rebuild(cv_json)
+            with open(base_cv_path, "w", encoding="utf-8") as f:
+                f.write(rebuilt_latex)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to parse and structure PDF CV: {e}")
+            
     # Generate general profile questions
     questions = analyzer.generate_general_profiling_questions(cv_json)
     return {
@@ -123,6 +249,20 @@ def submit_onboard_answers(payload: AnswersModel):
             db.add_qa(q, a, category)
     return {"status": "Onboarding answers saved successfully."}
 
+@app.post("/api/onboard/skip")
+def skip_onboarding():
+    """Skips onboarding by creating a default empty CV profile."""
+    empty_cv = {
+        "preamble": "\\documentclass{article}\n\\begin{document}\n\\end{document}",
+        "sections": []
+    }
+    with open(resume_json_path, "w", encoding="utf-8") as f:
+        json.dump(empty_cv, f)
+    with open(base_cv_path, "w", encoding="utf-8") as f:
+        f.write("\\documentclass{article}\n\\begin{document}\n\\end{document}\n")
+    return {"detail": "Onboarding skipped. Clean dashboard activated."}
+
+
 @app.get("/api/jobs")
 def get_jobs():
     """Lists all stored jobs."""
@@ -133,8 +273,35 @@ def get_jobs():
 
 @app.post("/api/jobs/monitor")
 def run_job_monitor():
-    """Triggers job monitoring feed scrape."""
-    new_jobs = monitor.monitor_and_store()
+    """Triggers job monitoring feed scrape using active database monitors."""
+    active_monitors = db.get_active_monitors()
+    new_jobs = []
+    
+    if not active_monitors:
+        # Fall back to default config settings
+        new_jobs = monitor.monitor_and_store()
+    else:
+        seen_job_ids = set()
+        for mon in active_monitors:
+            try:
+                keywords_list = json.loads(mon["keywords"])
+                locations_list = json.loads(mon["locations"])
+                search_cfg = {
+                    "keywords": keywords_list,
+                    "countries": locations_list,
+                    "cities": [],
+                    "remote": bool(mon["remote"]),
+                    "languages": ["English", "Swedish"],
+                    "citizenship_restrictions": []
+                }
+                jobs = monitor.monitor_and_store(search_cfg=search_cfg)
+                for j in jobs:
+                    if j["id"] not in seen_job_ids:
+                        seen_job_ids.add(j["id"])
+                        new_jobs.append(j)
+            except Exception as mon_err:
+                print(f"Error executing monitor '{mon['name']}': {mon_err}")
+                
     return {"detail": f"Scrape complete. Discovered {len(new_jobs)} jobs.", "new_jobs": new_jobs}
 
 @app.post("/api/jobs/manual")
@@ -238,9 +405,16 @@ def tailor_cv(job_id: str):
         pdf_download_url = f"/output/{file_prefix}.pdf"
         tex_download_url = f"/output/{file_prefix}.tex"
     except Exception as e:
-        print(f"Compilation warning: {e}")
-        pdf_download_url = None
-        tex_download_url = f"/output/{file_prefix}.tex"
+        print(f"LaTeX compilation failed: {e}. Falling back to Playwright HTML-to-PDF...")
+        try:
+            pdf_path = os.path.join(project_dir, "data", "output", f"{file_prefix}.pdf")
+            compiler.compile_html_to_pdf(tailored_cv_json, pdf_path)
+            pdf_download_url = f"/output/{file_prefix}.pdf"
+            tex_download_url = f"/output/{file_prefix}.tex"
+        except Exception as playwright_err:
+            print(f"Playwright compilation also failed: {playwright_err}")
+            pdf_download_url = None
+            tex_download_url = f"/output/{file_prefix}.tex"
         
     # Update job state
     db.update_job_status(job_id, "tailored")
@@ -303,6 +477,57 @@ def get_development_plan():
         "plan": plan
     }
 
+@app.get("/api/monitors")
+def get_monitors():
+    monitors = db.get_monitors()
+    deserialized = []
+    for m in monitors:
+        row = dict(m)
+        try:
+            row["keywords"] = json.loads(row["keywords"])
+        except Exception:
+            row["keywords"] = []
+        try:
+            row["locations"] = json.loads(row["locations"])
+        except Exception:
+            row["locations"] = []
+        row["remote"] = bool(row["remote"])
+        row["active"] = bool(row["active"])
+        deserialized.append(row)
+    return deserialized
+
+@app.post("/api/monitors")
+def add_monitor(payload: MonitorModel):
+    monitor_id = db.add_monitor(
+        name=payload.name,
+        keywords=payload.keywords,
+        locations=payload.locations,
+        remote=payload.remote,
+        active=payload.active
+    )
+    return {"monitor_id": monitor_id, "detail": "Monitor created successfully."}
+
+@app.put("/api/monitors/{monitor_id}")
+def update_monitor(monitor_id: str, payload: MonitorModel):
+    db.update_monitor(
+        monitor_id=monitor_id,
+        name=payload.name,
+        keywords=payload.keywords,
+        locations=payload.locations,
+        remote=payload.remote,
+        active=payload.active
+    )
+    return {"detail": "Monitor updated successfully."}
+
+@app.delete("/api/monitors/{monitor_id}")
+def delete_monitor(monitor_id: str):
+    db.delete_monitor(monitor_id)
+    return {"detail": "Monitor deleted successfully."}
+
+@app.post("/api/monitors/extract")
+def extract_preferences(payload: ExtractModel):
+    extracted = analyzer.extract_monitor_preferences(payload.text)
+    return extracted
 # Serve compiled frontend static files if they exist
 frontend_dist_path = os.path.join(project_dir, "frontend", "dist")
 if os.path.exists(frontend_dist_path):

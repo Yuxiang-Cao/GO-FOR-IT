@@ -56,9 +56,10 @@ class JobMonitor:
             print(f"Error fetching RSS feed: {e}")
         return jobs_found
 
-    def filter_job(self, job):
-        """Applies filters defined in config.yaml."""
-        search_cfg = self.config.get("search", {})
+    def filter_job(self, job, search_cfg=None):
+        """Applies filters defined in config.yaml or custom search_cfg."""
+        if search_cfg is None:
+            search_cfg = self.config.get("search", {})
         
         # 1. Keywords check (in title or description)
         keywords = search_cfg.get("keywords", [])
@@ -117,7 +118,7 @@ class JobMonitor:
         
         return True
 
-    def monitor_and_store(self, custom_feeds=None):
+    def monitor_and_store(self, search_cfg=None, custom_feeds=None):
         """Main loop to discover and filter jobs, logging them to SQLite db."""
         feeds = custom_feeds or []
         # If no feeds, we fetch from a default mock search or standard feed URL
@@ -134,7 +135,7 @@ class JobMonitor:
         for feed in feeds:
             jobs = self.fetch_rss_jobs(feed)
             for job in jobs:
-                if self.filter_job(job):
+                if self.filter_job(job, search_cfg=search_cfg):
                     job_id = self.db.add_job(
                         company=job["company"],
                         title=job["title"],
