@@ -24,14 +24,7 @@ Thumbs.db
 .DS_Store
 
 # Data & runtime artifacts
-data/database.db
-data/database.db-shm
-data/database.db-wal
-data/database.db.bak
-data/output/
-data/resume_base.json
-data/cv.tex
-data/fake_cv.tex
+data/
 
 # Node / Frontend
 frontend/node_modules/
