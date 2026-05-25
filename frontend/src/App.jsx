@@ -214,6 +214,14 @@ function App() {
     setLoading(true);
     
     const payload = {
+      search: {
+        keywords: searchConfig.keywords.split(',').map(s => s.trim()).filter(Boolean),
+        countries: searchConfig.countries.split(',').map(s => s.trim()).filter(Boolean),
+        cities: searchConfig.cities.split(',').map(s => s.trim()).filter(Boolean),
+        remote: searchConfig.remote,
+        languages: searchConfig.languages.split(',').map(s => s.trim()).filter(Boolean),
+        citizenship_restrictions: searchConfig.citizenship_restrictions.split(',').map(s => s.trim()).filter(Boolean),
+      },
       culture: {
         target_culture: searchConfig.target_culture
       }
@@ -226,7 +234,7 @@ function App() {
         body: JSON.stringify(payload)
       });
       if (res.ok) {
-        alert('Culture preferences saved successfully!');
+        alert('System preferences saved successfully!');
       } else {
         alert('Failed to save configuration.');
       }
@@ -1116,9 +1124,74 @@ function App() {
 
                 {/* Culture & System Settings Card */}
                 <div style={{ background: 'var(--bg-secondary)', padding: '24px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-                  <h3 style={{ marginTop: 0, marginBottom: '20px' }}>Recruitment Culture Preferences</h3>
+                  <h3 style={{ marginTop: 0, marginBottom: '20px' }}>Global System Preferences</h3>
                   <form onSubmit={handleSaveConfig}>
                     <div className="form-group">
+                      <label>Job Search Keywords (comma separated)</label>
+                      <input 
+                        type="text" 
+                        className="form-input"
+                        value={searchConfig.keywords}
+                        onChange={(e) => setSearchConfig({ ...searchConfig, keywords: e.target.value })}
+                        placeholder="e.g., Python Engineer, AI Engineer, Software Developer"
+                      />
+                    </div>
+                    
+                    <div className="form-group">
+                      <label>Target Countries (comma separated)</label>
+                      <input 
+                        type="text" 
+                        className="form-input"
+                        value={searchConfig.countries}
+                        onChange={(e) => setSearchConfig({ ...searchConfig, countries: e.target.value })}
+                        placeholder="e.g., Sweden, Norway, Denmark"
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label>Target Cities (comma separated)</label>
+                      <input 
+                        type="text" 
+                        className="form-input"
+                        value={searchConfig.cities}
+                        onChange={(e) => setSearchConfig({ ...searchConfig, cities: e.target.value })}
+                        placeholder="e.g., Gothenburg, Stockholm"
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label>Preferred Languages (comma separated)</label>
+                      <input 
+                        type="text" 
+                        className="form-input"
+                        value={searchConfig.languages}
+                        onChange={(e) => setSearchConfig({ ...searchConfig, languages: e.target.value })}
+                        placeholder="e.g., English, Swedish"
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label>Citizenship/Visa Restrictions (comma separated)</label>
+                      <input 
+                        type="text" 
+                        className="form-input"
+                        value={searchConfig.citizenship_restrictions}
+                        onChange={(e) => setSearchConfig({ ...searchConfig, citizenship_restrictions: e.target.value })}
+                        placeholder="e.g., EU Citizen, Visa Sponsorship"
+                      />
+                    </div>
+
+                    <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <input 
+                        type="checkbox" 
+                        id="global_remote"
+                        checked={searchConfig.remote}
+                        onChange={(e) => setSearchConfig({ ...searchConfig, remote: e.target.checked })}
+                      />
+                      <label htmlFor="global_remote" style={{ marginBottom: 0, cursor: 'pointer' }}>Allow Remote Positions</label>
+                    </div>
+
+                    <div className="form-group" style={{ marginTop: '20px' }}>
                       <label>Target Recruitment Culture</label>
                       <select 
                         className="form-input"
@@ -1130,7 +1203,10 @@ function App() {
                         <option value="Central Europe">Central Europe (Focus on structure & certifications)</option>
                       </select>
                     </div>
-                    <button type="submit" className="button" style={{ marginTop: '12px' }}>Save Culture Config</button>
+
+                    <button type="submit" className="button" style={{ marginTop: '16px', width: '100%' }}>
+                      💾 Save System Preferences
+                    </button>
                   </form>
                 </div>
               </div>
